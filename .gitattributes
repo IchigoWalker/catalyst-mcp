@@ -1,0 +1,16 @@
+# Text is stored and checked out with LF on every machine
+* text=auto eol=lf
+
+# Catalyst projects, RAGE resources, textures and media must never have line endings converted
+*.ctlst binary
+*.ypt binary
+*.ydr binary
+*.dds binary
+*.png binary
+*.mp4 binary
+*.zip binary
+
+# Keep vendored and generated files out of language statistics and collapsed in diffs
+third_party/** linguist-vendored
+effects/**/*.graph.json linguist-generated
+src/native_signatures.inc linguist-generated

@@ -1,0 +1,5 @@
+BasedOnStyle: LLVM
+IndentWidth: 2
+ColumnLimit: 110
+AllowShortFunctionsOnASingleLine: Empty
+SortIncludes: CaseSensitive

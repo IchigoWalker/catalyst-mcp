@@ -1,0 +1,57 @@
+# Build output
+/build/
+/out/
+/cmake-build-*/
+CMakeSettings.json
+CMakeUserPresets.json
+
+# Binaries are built or installed locally, never committed
+*.exe
+*.dll
+*.lib
+*.pdb
+*.obj
+
+# Local Catalyst installation and analysis workspace: proprietary binaries, disassembler databases,
+# crash dumps and copies of third-party documentation
+/catalyst/
+/research/
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+*.idb
+*.i64
+*.dmp
+
+# Files the plugin writes beside its DLL; catalyst-mcp.json holds the bearer token
+catalyst-mcp.json
+catalyst-mcp-patterns.json
+mcp-cache/
+*.log
+
+# Effect authoring scratch: seed projects, node templates, experiment captures, project backups
+/effects/*/research/
+
+# Archives are packaging output; publish them as release assets
+/effects/*/*.zip
+/effects/*/SHA256SUMS
+/*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors and operating systems
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+.claude/settings.local.json
+Thumbs.db
+desktop.ini
+.DS_Store
