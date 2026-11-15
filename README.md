@@ -11,6 +11,12 @@ The bridge discovers 35 native symbols with wildcard byte patterns and validates
 
 Verified with Catalyst **1.0.0.30 and 1.0.0.31**, including 49 native checks in an isolated 1.0.0.31 process.
 
+## Example
+
+An anomaly effect in-game, shown close up:
+
+![Anomaly effect with a dark core, glowing ribbons, and particles](docs/images/anomaly-preview.gif)
+
 ## Build
 
 Requirements: Visual Studio 2022 with Desktop development with C++, a Windows 10/11 SDK containing C++/WinRT, and CMake 3.24 or later. Dependencies are vendored; building requires no network access.
