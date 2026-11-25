@@ -22,6 +22,8 @@ Json dispatch_tool(const std::string &name, const Json &args, const Invoke &nati
 Json documentation_topics();
 Json documentation(const Json &args);
 Json mutate_graph(Json &document, const std::string &operation, const Json &args, const Invoke &templates);
+// Meanings of enum values and non-obvious flags for one node type, keyed by property name.
+Json property_hints(const std::string &type);
 std::string base64(const std::string &bytes);
 std::string unbase64(const std::string &text);
 struct ProjectFile {

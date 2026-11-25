@@ -50,10 +50,10 @@ The endpoint supports MCP protocol versions `2025-03-26`, `2025-06-18`, and `202
 | `catalyst_create_collection` | Create a named collection |
 | `catalyst_create_particle` | Build an eight-node sprite effect with seven typed connections |
 | `catalyst_get_project` | Inspect views, nodes, properties, curves, connections, asset ownership, and clip regions |
-| `catalyst_list_node_types`, `catalyst_get_node_template` | Discover all 32 native factories, defaults, named ports, and port types |
+| `catalyst_list_node_types`, `catalyst_get_node_template` | Discover all 32 native factories, defaults, named ports, port types, and the meaning of enum values taken from Catalyst's tooltips |
 | `catalyst_place_nodes`, `catalyst_move_nodes`, `catalyst_delete_nodes` | Edit graph layout and contents |
 | `catalyst_connect_nodes`, `catalyst_disconnect_nodes` | Edit typed connections; reject self-links, cycles, and occupied single inputs |
-| `catalyst_set_node_properties` | Merge typed scalar, enum, string, boolean, and vector properties |
+| `catalyst_set_node_properties` | Merge typed scalar, enum, string, boolean, and vector properties; rename a node |
 | `catalyst_set_curve` | Replace a normalized animation curve with ordered keyframes |
 | `catalyst_edit_graph` | Apply many of the graph edits above as one transaction with a single project reload |
 | `catalyst_add_texture`, `catalyst_add_drawable` | Import DDS textures and YDR drawables into a collection |
@@ -62,7 +62,8 @@ The endpoint supports MCP protocol versions `2025-03-26`, `2025-06-18`, and `202
 | `catalyst_set_sprite_animation` | Flipbook frame range, FPS, blending, hold, and lifetime matching |
 | `catalyst_set_evolution_properties` | Choose the animated properties a Particle Evolution node overrides; Catalyst then gives the node one curve per property |
 | `catalyst_set_viewport_mode` | Switch the viewport between `preview` (the effect as the game draws it), `editor`, `wireframe` and `simulation` |
-| `catalyst_render_particle` | Seek to a normalized position and return a PNG of the Catalyst window containing the preview |
+| `catalyst_render_particle` | Seek to one or up to eight normalized positions and return the live particle count and a PNG of the preview viewport, the whole window or a given area; several positions render side by side |
+| `catalyst_get_stats` | Live particle count of the shown effect, as Catalyst's status bar reports it |
 
 Paths must be absolute. Create destination directories before saving or exporting. Export uses collections checked for export and writes `<collection>_legacy.ypt` and/or `<collection>_enhanced.ypt`.
 
@@ -84,7 +85,7 @@ Calls below show tool arguments, not raw JSON-RPC envelopes:
 {"tool":"catalyst_export_ypt","arguments":{"directory":"C:/Effects/Export","legacy":true,"enhanced":true}}
 ```
 
-Use IDs returned by creation tools rather than assuming the example IDs in an existing project. Curves use normalized times in `[0,1]`; each value has one to four components. Inspect the corresponding native default curve to learn component meaning and units. Many Catalyst size/scalar values use percentages.
+Use IDs returned by creation tools rather than assuming the example IDs in an existing project. Any tool that takes a node ID also accepts the node's display name when exactly one node in the view carries it. Curves use normalized times in `[0,1]`; each value has one to four components. Inspect the corresponding native default curve to learn component meaning and units. Many Catalyst size/scalar values use percentages.
 
 ### Batch edits
 
@@ -120,7 +121,7 @@ Rendering pauses playback. Without `duration`, the position is in Catalyst's nor
 
 ## Native binding
 
-Native binding uses a bounded SSE2 pattern search over executable PE sections. Relative calls and RIP-relative data references are decoded, and AMD64 unwind metadata identifies function starts. All hooks are created before they are enabled; a hook failure rolls them back. Every Catalyst process performs a fresh scan at startup. Resolved addresses remain in an in-memory binding table for native calls; there is no persistent signature cache. The diagnostic JSON report is output only and is never loaded as an address source.
+Native binding uses a bounded SSE2 pattern search over executable PE sections. Relative calls and RIP-relative data references are decoded, and AMD64 unwind metadata identifies function starts. All hooks are created before they are enabled; a hook failure rolls them back. Every Catalyst process performs a fresh scan at startup. Resolved addresses remain in an in-memory binding table for native calls; there is no persistent signature cache. A failed signature or layout guard disables the bridge, except for optional ones such as the live particle count, which only switch off their own feature and are reported under `optional_errors`. The diagnostic JSON report is output only and is never loaded as an address source.
 
 Drawable import has not been exercised with a real YDR asset.
 

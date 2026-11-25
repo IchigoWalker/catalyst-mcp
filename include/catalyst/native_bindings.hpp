@@ -40,6 +40,7 @@ enum class NativeSymbol : size_t {
   DirtyVariable,
   PreviewElement,
   SetPreviewViewMode,
+  ParticleCount,
   Count
 };
 enum class SignatureKind { Match, Function, Relative32 };
@@ -51,12 +52,16 @@ struct NativeSignature {
   int32_t addend{};
   ImageTarget target{ImageTarget::Code};
   NativeSymbol scope{NativeSymbol::Count};
+  // An optional symbol that fails to resolve disables only the feature using it, not the bridge.
+  bool optional{};
 };
 struct LayoutGuard {
   std::string_view name, pattern;
   uint16_t operand_offset{};
   uint8_t operand_width{};
   int32_t expected{};
+  // A guard for an optional symbol disables that symbol when it fails instead of the bridge.
+  NativeSymbol feature{NativeSymbol::Count};
 };
 struct NativeBindings {
   uintptr_t base{};
@@ -64,6 +69,7 @@ struct NativeBindings {
   bool compatible{};
   Json report;
   uintptr_t address(NativeSymbol symbol) const;
+  bool available(NativeSymbol symbol) const;
 };
 std::span<const NativeSignature> native_signatures();
 std::span<const LayoutGuard> native_layout_guards();

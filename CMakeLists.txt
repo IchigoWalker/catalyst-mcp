@@ -10,8 +10,8 @@ add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
 add_library(minhook STATIC third_party/minhook/src/buffer.c third_party/minhook/src/hook.c
   third_party/minhook/src/trampoline.c third_party/minhook/src/hde/hde64.c)
 target_include_directories(minhook PUBLIC third_party/minhook/include)
-add_library(catalyst_core STATIC src/mcp.cpp src/project.cpp src/graph.cpp src/docs.cpp src/pattern.cpp
-  src/native_bindings.cpp)
+add_library(catalyst_core STATIC src/mcp.cpp src/project.cpp src/graph.cpp src/docs.cpp src/hints.cpp
+  src/pattern.cpp src/native_bindings.cpp)
 target_include_directories(catalyst_core PUBLIC include third_party)
 target_link_libraries(catalyst_core PUBLIC ws2_32 crypt32 bcrypt)
 add_library(version SHARED src/proxy.cpp src/runtime.cpp src/bridge.cpp src/capture.cpp src/version.def)

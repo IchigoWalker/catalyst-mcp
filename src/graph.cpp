@@ -30,6 +30,47 @@ Json &node(Json &v, uint64_t id) {
       return n;
   throw ToolError("Node was not found");
 }
+void resolve_name(const Json &v, Json &id) {
+  if (!id.is_string())
+    return;
+  const auto name = id.get<std::string>();
+  std::vector<uint64_t> matches;
+  for (const auto &n : v["nodes"])
+    if (n.value("n", std::string()) == name)
+      matches.push_back(n["i"].get<uint64_t>());
+  if (matches.empty())
+    throw ToolError("No node is named \"" + name + "\" in this view (and it is not a ref of this batch)");
+  if (matches.size() > 1) {
+    std::string ids;
+    for (auto m : matches)
+      ids += (ids.empty() ? "" : ", ") + std::to_string(m);
+    throw ToolError("Node name \"" + name + "\" is used by nodes " + ids +
+                    "; use a numeric id or rename one with set_node_properties {name}");
+  }
+  id = matches.front();
+}
+Json resolve_names(const Json &doc, const Json &args) {
+  if (!args.contains("view_id"))
+    return args;
+  Json resolved = args;
+  const Json *v = nullptr;
+  for (const auto &candidate : doc.at("views"))
+    if (candidate["id"] == args["view_id"])
+      v = &candidate;
+  if (!v)
+    return resolved;
+  for (const char *key : {"node_id", "from_node", "to_node"})
+    if (resolved.contains(key))
+      resolve_name(*v, resolved[key]);
+  if (resolved.contains("node_ids") && resolved["node_ids"].is_array())
+    for (auto &id : resolved["node_ids"])
+      resolve_name(*v, id);
+  if (resolved.contains("positions") && resolved["positions"].is_array())
+    for (auto &position : resolved["positions"])
+      if (position.is_object() && position.contains("node_id"))
+        resolve_name(*v, position["node_id"]);
+  return resolved;
+}
 void patch_values(Json &values, const Json &patch) {
   if (!patch.is_object())
     throw ToolError("Properties must be an object");
@@ -131,13 +172,13 @@ Json edit_graph(Json &doc, const Json &args, const Invoke &templates) {
   };
   std::map<std::string, uint64_t> refs;
   std::set<std::string> declared;
+  // Strings that are not refs are resolved as node names by mutate_graph.
   const auto resolve = [&](Json &id) {
     if (!id.is_string())
       return;
     auto it = refs.find(id.get<std::string>());
-    if (it == refs.end())
-      throw ToolError("Unknown node reference: " + id.get<std::string>());
-    id = it->second;
+    if (it != refs.end())
+      id = it->second;
   };
   Json work = doc, placed = Json::array();
   for (size_t index = 0; index < operations.size(); ++index) {
@@ -197,9 +238,10 @@ Json edit_graph(Json &doc, const Json &args, const Invoke &templates) {
           {"connections", v["connections"].size()}};
 }
 } // namespace
-Json mutate_graph(Json &doc, const std::string &operation, const Json &args, const Invoke &templates) {
+Json mutate_graph(Json &doc, const std::string &operation, const Json &input, const Invoke &templates) {
   if (operation == "catalyst_edit_graph")
-    return edit_graph(doc, args, templates);
+    return edit_graph(doc, input, templates);
+  const auto args = resolve_names(doc, input);
   uint64_t next_node = 1;
   for (const auto &v : doc.at("views"))
     next_node = std::max(next_node, next_id(v.at("nodes"), "i"));
@@ -285,7 +327,15 @@ Json mutate_graph(Json &doc, const std::string &operation, const Json &args, con
   }
   if (operation == "catalyst_set_node_properties") {
     auto &n = node(view(doc, args), args.at("node_id"));
-    patch_values(n["v"], args.at("properties"));
+    if (!args.contains("properties") && !args.contains("name"))
+      throw ToolError("Provide properties, a name, or both");
+    if (args.contains("name")) {
+      auto name = args.at("name").get<std::string>();
+      valid_name(name);
+      n["n"] = name;
+    }
+    if (args.contains("properties"))
+      patch_values(n["v"], args.at("properties"));
     return {{"node", n}};
   }
   if (operation == "catalyst_move_nodes") {
