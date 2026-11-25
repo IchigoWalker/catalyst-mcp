@@ -308,6 +308,8 @@ Json node_template(const std::string &type) {
       Json result = {{"node", read_value(text.data())},
                      {"inputs", node_ports(node, 96)},
                      {"outputs", node_ports(node, 120)}};
+      if (auto hints = property_hints(type); !hints.empty())
+        result["hints"] = std::move(hints);
       function<void (*)(void *)>(NativeSymbol::JsonDestroy)(text.data());
       reinterpret_cast<void (*)(void *, unsigned)>(vtable[1])(node, 1);
       return result;
@@ -372,8 +374,33 @@ void apply_document(ProjectFile &file) {
   set_string(static_cast<char *>(self) + 920, original_path);
   function<void (*)(void *, unsigned char)>(NativeSymbol::RefreshApp)(self, 1);
 }
+Json particle_stats() {
+  auto self = app.load();
+  Json out = {{"active_tab", read_string(static_cast<char *>(self) + 2032)},
+              {"tab_type", read_string(static_cast<char *>(self) + 2064)},
+              {"particles_alive", nullptr}};
+  if (!bindings.available(NativeSymbol::ParticleCount)) {
+    out["note"] = "This Catalyst build does not match the particle count signature; see catalyst_status";
+    return out;
+  }
+  // The same checks the status bar makes before it shows "{} particles alive".
+  if (out["active_tab"].get<std::string>().empty() || out["tab_type"] != "effect" ||
+      field<uint8_t>(self, 1037) != 1) {
+    out["note"] = "No effect preview is shown; render an effect first";
+    return out;
+  }
+  auto element = function<void *(*)(void *)>(NativeSymbol::PreviewElement)(self);
+  if (!element) {
+    out["note"] = "The preview element is not available";
+    return out;
+  }
+  out["particles_alive"] = function<uint64_t (*)(void *)>(NativeSymbol::ParticleCount)(element);
+  return out;
+}
 Json execute(const std::string &operation, const Json &args) {
   auto self = app.load();
+  if (operation == "catalyst_get_stats")
+    return particle_stats();
   if (operation == "catalyst_list_node_types")
     return {{"types", node_types()}};
   if (operation == "catalyst_get_node_template")
@@ -686,6 +713,115 @@ Json execute(const std::string &operation, const Json &args) {
   }
   throw ToolError("Native operation is not implemented: " + operation);
 }
+Json run_on_editor(const std::string &operation, const Json &args) {
+  auto job = std::make_shared<Job>();
+  job->action = [operation, args] { return execute(operation, args); };
+  auto future = job->promise.get_future();
+  {
+    std::lock_guard lock(queue_mutex);
+    if (queue.size() >= 32)
+      throw ToolError("Editor queue is full");
+    queue.push_back(job);
+  }
+  PostThreadMessageW(editor_thread.load(), WM_NULL, 0, 0);
+  if (future.wait_for(std::chrono::seconds(60)) != std::future_status::ready) {
+    int expected = 0;
+    if (job->state.compare_exchange_strong(expected, 3))
+      throw ToolError("Editor did not service the request; queued operation was cancelled");
+    throw ToolError("Native operation is still executing; inspect editor state before retrying");
+  }
+  return future.get();
+}
+// Capture on an HTTP worker so the editor remains free to present the sought frame.
+void wait_for_frame(uint64_t frame) {
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (presented_frames.load() < frame) {
+    if (!app.load())
+      throw ToolError("Catalyst closed before rendering completed");
+    if (std::chrono::steady_clock::now() > deadline)
+      throw ToolError("Catalyst did not present the requested preview");
+    PostThreadMessageW(editor_thread.load(), WM_NULL, 0, 0);
+    std::unique_lock lock(frame_mutex);
+    frame_changed.wait_for(lock, std::chrono::milliseconds(20));
+  }
+}
+int region_value(const Json &region, const char *key) {
+  if (!region.contains(key) || !region[key].is_number_integer())
+    throw ToolError(std::string("region needs integer x, y, width and height (missing ") + key + ")");
+  return region[key].get<int>();
+}
+Json render(const Json &args) {
+  std::vector<double> positions;
+  if (args.contains("position") == args.contains("positions"))
+    throw ToolError("Provide either position or positions");
+  if (args.contains("positions")) {
+    const auto &list = args["positions"];
+    if (list.empty() || list.size() > 8)
+      throw ToolError("positions must hold 1 to 8 values");
+    for (const auto &p : list) {
+      if (!p.is_number() || !std::isfinite(p.get<double>()) || p.get<double>() < 0 || p.get<double>() > 1)
+        throw ToolError("Every position must be a number within [0,1]");
+      positions.push_back(p.get<double>());
+    }
+  } else
+    positions.push_back(args.at("position").get<double>());
+  const bool image = args.value("image", true);
+  const int max_width = args.value("max_width", 1024);
+  Json frames = Json::array();
+  std::vector<Frame> shots;
+  Json effect_duration;
+  for (double position : positions) {
+    Json seek_args = args;
+    for (const char *key : {"positions", "region", "max_width", "image"})
+      seek_args.erase(key);
+    seek_args["position"] = position;
+    auto seek = run_on_editor("catalyst_render_particle", seek_args);
+    const auto window = reinterpret_cast<HWND>(seek.at("_capture_hwnd").get<uintptr_t>());
+    wait_for_frame(seek.at("_capture_frame").get<uint64_t>());
+    if (image)
+      shots.push_back(capture_window(window));
+    const auto stats = run_on_editor("catalyst_get_stats", Json::object());
+    effect_duration = seek.at("effect_duration");
+    frames.push_back({{"position", position},
+                      {"seconds", seek.at("seconds")},
+                      {"particles_alive", stats.at("particles_alive")}});
+  }
+  Json result = {{"view_id", args.at("view_id")}, {"effect_duration", effect_duration}, {"frames", frames}};
+  if (positions.size() == 1) {
+    result["position"] = frames[0]["position"];
+    result["seconds"] = frames[0]["seconds"];
+    result["particles_alive"] = frames[0]["particles_alive"];
+  }
+  if (!image)
+    return result;
+  Rect area{0, 0, shots.front().width, shots.front().height};
+  std::string source = "window";
+  const auto region = args.value("region", Json("viewport"));
+  if (region.is_object()) {
+    area = {region_value(region, "x"), region_value(region, "y"), region_value(region, "width"),
+            region_value(region, "height")};
+    if (area.width < 1 || area.height < 1)
+      throw ToolError("region width and height must be positive");
+    source = "argument";
+  } else if (region == "viewport") {
+    if (detect_viewport(shots.front(), area))
+      source = "viewport";
+    else
+      source = "window (no viewport found)";
+  } else if (region != "window")
+    throw ToolError("region must be \"viewport\", \"window\" or {x,y,width,height}");
+  std::vector<Frame> cropped;
+  for (const auto &shot : shots)
+    cropped.push_back(crop(shot, area));
+  int width = 0, height = 0;
+  const auto png = encode_png(compose_row(cropped, 8), max_width, width, height);
+  result["region"] = {
+      {"x", area.x}, {"y", area.y}, {"width", area.width}, {"height", area.height}, {"source", source}};
+  result["image"] = {{"width", width}, {"height", height}, {"frames_left_to_right", positions.size()}};
+  return {
+      {"_mcp_content", Json::array({{{"type", "text"}, {"text", result.dump()}},
+                                    {{"type", "image"}, {"mimeType", "image/png"}, {"data", base64(png)}}})}};
+}
 } // namespace
 bool install_bridge() {
   wchar_t path[32768]{};
@@ -717,9 +853,11 @@ bool install_bridge() {
     log("Native pattern resolution rejected this build: " + bindings.report.at("errors").dump());
     return false;
   }
-  log("Resolved " + std::to_string(native_signatures().size()) + " native signatures and " +
+  log("Resolved " + bindings.report.at("symbols_resolved").dump() + " native signatures and " +
       std::to_string(native_layout_guards().size()) + " layout guards in " +
       std::to_string(bindings.report.at("resolution_ms").get<double>()) + " ms");
+  if (!bindings.report.at("optional_errors").empty())
+    log("Optional features disabled: " + bindings.report.at("optional_errors").dump());
   if (MH_Initialize() != MH_OK) {
     bindings.report["hook_error"] = "MinHook initialization failed";
     publish();
@@ -788,49 +926,8 @@ Json invoke_native(const std::string &operation, const Json &args) {
                     "or catalyst-mcp-patterns.json.");
   if (!app.load())
     throw ToolError("Catalyst editor is initializing or a startup dialog is open");
-  auto job = std::make_shared<Job>();
-  job->action = [operation, args] { return execute(operation, args); };
-  auto future = job->promise.get_future();
-  {
-    std::lock_guard lock(queue_mutex);
-    if (queue.size() >= 32)
-      throw ToolError("Editor queue is full");
-    queue.push_back(job);
-  }
-  PostThreadMessageW(editor_thread.load(), WM_NULL, 0, 0);
-  if (future.wait_for(std::chrono::seconds(60)) != std::future_status::ready) {
-    int expected = 0;
-    if (job->state.compare_exchange_strong(expected, 3))
-      throw ToolError("Editor did not service the request; queued operation was cancelled");
-    throw ToolError("Native operation is still executing; inspect editor state before retrying");
-  }
-  auto result = future.get();
-  auto window = result.is_object() && result.contains("_capture_hwnd")
-                    ? reinterpret_cast<HWND>(result.at("_capture_hwnd").get<uintptr_t>())
-                    : nullptr;
-  auto capture_frame = result.is_object() ? result.value("_capture_frame", uint64_t{}) : 0;
-  if (result.is_object()) {
-    result.erase("_capture_hwnd");
-    result.erase("_capture_frame");
-  }
-  if (operation == "catalyst_render_particle" && args.value("image", true)) {
-    // Capture on an HTTP worker so the editor remains free to present the sought frame.
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (presented_frames.load() < capture_frame) {
-      if (!app.load())
-        throw ToolError("Catalyst closed before rendering completed");
-      if (std::chrono::steady_clock::now() > deadline)
-        throw ToolError("Catalyst did not present the requested preview");
-      PostThreadMessageW(editor_thread.load(), WM_NULL, 0, 0);
-      std::unique_lock lock(frame_mutex);
-      frame_changed.wait_for(lock, std::chrono::milliseconds(20));
-    }
-    auto captured = capture_window(window, Json::object());
-    return {
-        {"_mcp_content",
-         Json::array({{{"type", "text"}, {"text", result.dump()}},
-                      {{"type", "image"}, {"mimeType", "image/png"}, {"data", captured.at("png_base64")}}})}};
-  }
-  return result;
+  if (operation == "catalyst_render_particle")
+    return render(args);
+  return run_on_editor(operation, args);
 }
 } // namespace catalyst

@@ -40,6 +40,9 @@ constexpr NativeSignature signatures[] = {
   {NativeSymbol::DirtyVariable, "DirtyVariable", "48 B8 56 69 65 77 4D 6F 64 65 48 89 45 DF C6 45 E7 00 48 8D 55 D8 E8 ?? ?? ?? ??", SignatureKind::Relative32, 23, 0, ImageTarget::Code, NativeSymbol::PreviewModeHandler},
   {NativeSymbol::PreviewElement, "PreviewElement", "48 89 F1 E8 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 8E 28 04 00 00", SignatureKind::Relative32, 4, 0, ImageTarget::Code, NativeSymbol::PreviewModeHandler},
   {NativeSymbol::SetPreviewViewMode, "SetPreviewViewMode", "42 8D 14 45 01 00 00 00 48 89 C1 E8 ?? ?? ?? ??", SignatureKind::Relative32, 12, 0, ImageTarget::Code, NativeSymbol::PreviewModeHandler},
+  // Live particle count, optional. Derived by hand from the status bar, which formats "{} particles alive"
+  // from ParticleCount(PreviewElement(app)). Resolves once in 1.0.0.31.
+  {NativeSymbol::ParticleCount, "ParticleCount", "48 89 F1 E8 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 89 C1 E8 ?? ?? ?? ?? 48 89 45 B8 48 B8 00 00 00 00 00 00 00 40", SignatureKind::Relative32, 21, 0, ImageTarget::Code, NativeSymbol::Count, true},
 };
 static_assert(std::size(signatures) == static_cast<size_t>(NativeSymbol::Count));
 constexpr LayoutGuard layout_guards[] = {
@@ -57,6 +60,8 @@ constexpr LayoutGuard layout_guards[] = {
   {"App.selected_track_revision", "44 08 FB 75 ?? 48 8B 86 ?? ?? ?? ?? 48 3B 87 60 01 00 00 0F 84 ?? ?? ?? ??", 8, 4, 4520},
   {"App.selected_keyframe", "0F 85 ?? ?? ?? ?? C6 86 D9 06 00 00 00 48 C7 86 ?? ?? ?? ?? 00 00 00 00 48 81 C6 B0 0F 00 00 48 C7 85 38 01 00 00 00 00 00 00", 16, 4, 4536},
   {"App.preview_view_mode", "41 C7 84 24 ?? ?? ?? ?? 65 64 69 74 66 41 C7 84 24 ?? ?? ?? ?? 6F 72", 4, 4, 1048},
+  // Checked by the status bar before it reads the particle count.
+  {"App.preview_visible", "80 BE ?? ?? ?? ?? 01 0F 85 ?? ?? ?? ?? 48 89 F1 E8 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 89 C1 E8", 2, 4, 1037, NativeSymbol::ParticleCount},
   {"App.data_model", "48 8D 8E ?? ?? ?? ?? 48 C7 45 E8 0F 00 00 00 48 C7 45 F0 0F 00 00 00 48 B8 70 72 65 76 69 65 77 56", 3, 4, 4016},
   {"Project.textures", "49 8B 94 24 40 02 00 00 4C 21 FA 49 8B 8C 24 ?? ?? ?? ?? 4D 8B 8C 24 28 02 00 00 48 89 D0", 15, 4, 536},
   {"Project.drawables", "4C 21 FA 49 8B 8C 24 18 02 00 00 4D 8B 8C 24 ?? ?? ?? ?? 48 89 D0 48 C1 E0 04", 15, 4, 552},

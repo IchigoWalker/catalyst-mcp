@@ -18,14 +18,22 @@ uintptr_t NativeBindings::address(NativeSymbol symbol) const {
     throw ToolError("Native signature bindings are unavailable");
   return base + rvas[index];
 }
+bool NativeBindings::available(NativeSymbol symbol) const {
+  auto index = static_cast<size_t>(symbol);
+  return compatible && index < rvas.size() && rvas[index];
+}
 
 NativeBindings resolve_native_bindings(const PatternImage &image) {
   const auto started = std::chrono::steady_clock::now();
   NativeBindings result;
   result.base = image.base();
-  result.report = {
-      {"mode", "patterns"},       {"profile", "catalyst-msvc-x64-v1"}, {"scanner", "SSE2 masked anchors"},
-      {"symbols", Json::array()}, {"layout_guards", Json::array()},    {"errors", Json::array()}};
+  result.report = {{"mode", "patterns"},
+                   {"profile", "catalyst-msvc-x64-v1"},
+                   {"scanner", "SSE2 masked anchors"},
+                   {"symbols", Json::array()},
+                   {"layout_guards", Json::array()},
+                   {"errors", Json::array()},
+                   {"optional_errors", Json::array()}};
   std::set<uint32_t> code_targets;
   for (const auto &signature : signatures) {
     Json diagnostic = {{"name", signature.name}};
@@ -67,7 +75,8 @@ NativeBindings resolve_native_bindings(const PatternImage &image) {
     } catch (const std::exception &error) {
       diagnostic["matched"] = false;
       diagnostic["error"] = error.what();
-      result.report["errors"].push_back(std::string(signature.name) + ": " + error.what());
+      result.report[signature.optional ? "optional_errors" : "errors"].push_back(std::string(signature.name) +
+                                                                                 ": " + error.what());
     }
     result.report["symbols"].push_back(std::move(diagnostic));
   }
@@ -89,7 +98,11 @@ NativeBindings resolve_native_bindings(const PatternImage &image) {
     } catch (const std::exception &error) {
       diagnostic["matched"] = false;
       diagnostic["error"] = error.what();
-      result.report["errors"].push_back(std::string(guard.name) + ": " + error.what());
+      const bool optional = guard.feature != NativeSymbol::Count;
+      if (optional)
+        result.rvas[static_cast<size_t>(guard.feature)] = 0;
+      result.report[optional ? "optional_errors" : "errors"].push_back(std::string(guard.name) + ": " +
+                                                                       error.what());
     }
     result.report["layout_guards"].push_back(std::move(diagnostic));
   }
@@ -115,7 +128,10 @@ NativeBindings resolve_native_bindings(const PatternImage &image) {
   result.report["compatible"] = result.compatible;
   result.report["symbols_resolved"] =
       std::count_if(result.rvas.begin(), result.rvas.end(), [](auto rva) { return rva != 0; });
-  result.report["symbols_required"] = std::size(signatures);
+  result.report["symbols_required"] =
+      std::count_if(std::begin(signatures), std::end(signatures), [](const auto &s) { return !s.optional; });
+  result.report["symbols_optional"] =
+      std::count_if(std::begin(signatures), std::end(signatures), [](const auto &s) { return s.optional; });
   result.report["layout_checks_required"] = std::size(layout_guards);
   result.report["resolution_ms"] =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();

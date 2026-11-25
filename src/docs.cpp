@@ -53,11 +53,11 @@ ParticleEffectRule                    the effect: name, durationMin/durationMax 
 
 - The effect accepts many event emitters, and one Particle Rule can feed many event emitters. Sharing looks this way keeps large effects small.
 - `startRatio` and `endRatio` are fractions of the effect duration, not seconds.
-- `catalyst_list_node_types` lists every node type; `catalyst_get_node_template` gives a type's inputs (with `multiple`), outputs, properties (`v`) and curves (`k`).
+- `catalyst_list_node_types` lists every node type; `catalyst_get_node_template` gives a type's inputs (with `multiple`), outputs, properties (`v`), curves (`k`) and, for many types, `hints`: what each enum value means (taken from Catalyst's own tooltips) and notes on non-obvious flags.
 - A property whose template value is null is an input or a curve: connect a node or use `catalyst_set_curve`, not `catalyst_set_node_properties`.
 - Property types are checked: integers stay integers, numbers must be finite, unknown names are rejected.
 - A connection needs matching port types. A single-value input rejects a second connection, and cycles are rejected.
-- Node ids are numbers assigned by the server. Node display names may not contain `/`, `\` or `:`.
+- Node ids are numbers assigned by the server. Wherever a node id is expected you may also pass the node's display name (`n`) if exactly one node in the view carries it; the error lists the ids when a name is shared. Name nodes in `place_nodes` or rename one with `set_node_properties {name}`. Node display names may not contain `/`, `\` or `:`.
 
 ## Evolutions
 
@@ -74,7 +74,7 @@ An evolution is a named slider from 0 to 1 that a game script drives. At 1 it re
 
 ## Batch edits
 
-`catalyst_edit_graph` takes `operations`, each `{"op": ..., ...}` with the arguments of the matching single tool: `place_nodes`, `connect_nodes`, `disconnect_nodes`, `set_node_properties`, `move_nodes`, `delete_nodes`, `set_curve`, `set_sprite_animation`, `set_evolution_properties`. Give a new node a `ref` in `place_nodes` and use that string wherever a later operation expects a node id. Operations run in order; if one fails nothing is changed and the error names it.
+`catalyst_edit_graph` takes `operations`, each `{"op": ..., ...}` with the arguments of the matching single tool: `place_nodes`, `connect_nodes`, `disconnect_nodes`, `set_node_properties`, `move_nodes`, `delete_nodes`, `set_curve`, `set_sprite_animation`, `set_evolution_properties`. Give a new node a `ref` in `place_nodes` and use that string wherever a later operation expects a node id. A ref exists only inside its batch; in later calls use the node's display name or id. Operations run in order; if one fails nothing is changed and the error names it.
 )md"},
     {"properties", "what the main properties and curves mean",
      R"md(# Properties and curves
@@ -103,10 +103,12 @@ A particle starts at a random point of the Creation Domain and is launched along
 - A target domain offset from the origin: a cone towards it.
 - A flat cylinder as the target: a disc.
 - `speedScalar` 0: particles stay where they spawn.
+- `isPointRelative` on the target domain measures the vector from the effect origin instead of the spawn point: every particle then gets a direction from the target alone, wherever it spawns. A small target at (0, 0, -1) makes a wide box of snow fall straight down; without the flag those particles converge on the target.
+- `isCreationRelative` moves the target domain with the Creation Domain (position and rotation). It does not make the direction per particle.
 
 ## Particle Domain
 
-- `shape`: 0 box, 1 sphere, 2 cylinder.
+- `shape`: 0 box, 1 sphere, 2 cylinder, 3 attractor (Attractor domain only).
 - `position` is relative to the effect origin; +Z is up.
 - `sizeOuter` holds half-extents for a box and radii otherwise. `sizeInner` hollows the shape: an inner size of 0.9 of the outer one leaves a thin shell.
 
@@ -146,7 +148,9 @@ A particle starts at a random point of the Creation Domain and is launched along
 
 ## Rendering
 
-- `catalyst_render_particle` seeks the preview and returns a PNG of the whole Catalyst window, editor chrome included. Crop the viewport yourself. The status bar at the bottom right of the capture shows the number of live particles.
+- `catalyst_render_particle` seeks the preview and returns a PNG and `particles_alive`, the live particle count Catalyst's status bar shows. By default it captures only the 3D viewport, found in the window by its sky and ground; the result's `region` gives the rectangle and `source` says whether it was detected. Pass `region: "window"` for the whole window or `{x, y, width, height}` in window pixels for a fixed area. `max_width` (default 1024) scales the image down.
+- `positions` (up to 8) renders several moments into one image, left to right, with one `frames` entry per moment. Use it to see how an effect evolves instead of separate calls.
+- `catalyst_get_stats` reads the live particle count at any time, also while the preview plays. The count relies on an optional native signature: when a Catalyst build does not match it, `particles_alive` is null and `catalyst_status` lists the reason under `optional_errors`; every other tool keeps working.
 - The window must not be minimised. A startup or error dialog makes the call fail; `catalyst_status` lists them in `ui_notices`, and only the user can close them.
 - `position` is 0..1. With `duration` in seconds the tool seeks in simulation mode to `position * duration`, so pass the effect's duration to address a moment in seconds. `image: false` seeks without capturing.
 - Rendering pauses playback. Graph edits reload the project and reset selection, playback and undo history.

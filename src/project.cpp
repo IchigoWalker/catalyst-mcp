@@ -65,6 +65,9 @@ Json tool_catalog() {
   const Json str = {{"type", "string"}}, integer = {{"type", "integer"}, {"minimum", 0}},
              number = {{"type", "number"}}, boolean = {{"type", "boolean"}}, object = {{"type", "object"}},
              array = {{"type", "array"}};
+  const Json node_ref = {
+      {"anyOf", Json::array({integer, str})},
+      {"description", "Node id, or the node's display name when that is unique in the view"}};
   add("catalyst_create_particle",
       "Create a connected effect, event emitter, emitter, particle, sprite draw, shader, color and size "
       "graph. Assign a texture to the shader to make it visible.",
@@ -74,9 +77,9 @@ Json tool_catalog() {
       "templates first.",
       {{"view_id", integer}, {"nodes", array}}, {"view_id", "nodes"});
   const Json connection = {{"view_id", integer},
-                           {"from_node", integer},
+                           {"from_node", node_ref},
                            {"from_port", str},
-                           {"to_node", integer},
+                           {"to_node", node_ref},
                            {"to_port", str}};
   add("catalyst_connect_nodes",
       "Connect compatible named ports. Supports multiple behavior inputs; rejects cycles.", connection,
@@ -84,17 +87,18 @@ Json tool_catalog() {
   add("catalyst_disconnect_nodes", "Remove one exact connection.", connection,
       {"view_id", "from_node", "from_port", "to_node", "to_port"});
   add("catalyst_set_node_properties",
-      "Merge typed properties into a node's native v object. Use templates for property names and units.",
-      {{"view_id", integer}, {"node_id", integer}, {"properties", object}},
-      {"view_id", "node_id", "properties"});
-  add("catalyst_move_nodes", "Move nodes with positions [{node_id,x,y}].",
+      "Merge typed properties into a node's native v object, and/or rename the node with name. Use templates "
+      "for property names, units and the meaning of enum values (hints).",
+      {{"view_id", integer}, {"node_id", node_ref}, {"properties", object}, {"name", str}},
+      {"view_id", "node_id"});
+  add("catalyst_move_nodes", "Move nodes with positions [{node_id,x,y}]; node_id may be a node name.",
       {{"view_id", integer}, {"positions", array}}, {"view_id", "positions"});
-  add("catalyst_delete_nodes", "Remove nodes and their incident connections.",
+  add("catalyst_delete_nodes", "Remove nodes and their incident connections. node_ids may hold node names.",
       {{"view_id", integer}, {"node_ids", array}}, {"view_id", "node_ids"});
   add("catalyst_set_curve",
       "Replace an animated property curve. Keyframes: [{time:0..1,value:[x,y,z,w],interpolation:0}].",
       {{"view_id", integer},
-       {"node_id", integer},
+       {"node_id", node_ref},
        {"property", str},
        {"keyframes", array},
        {"inverted", boolean}},
@@ -106,8 +110,9 @@ Json tool_catalog() {
       "Apply many graph edits as one transaction with a single project reload; nothing changes if any "
       "operation fails. Each operation is {op, ...arguments}, where the arguments are those of the "
       "catalyst_<op> tool and view_id defaults to this call's. A place_nodes node may carry a string ref; "
-      "later operations accept that ref wherever a node id is expected. Returns new node ids in placement "
-      "order and the id behind every ref.",
+      "later operations accept that ref wherever a node id is expected. Any other string there is taken as a "
+      "node display name, which must be unique in the view and also works in later calls. Returns new node "
+      "ids in placement order and the id behind every ref.",
       {{"view_id", integer},
        {"operations",
         {{"type", "array"},
@@ -121,12 +126,12 @@ Json tool_catalog() {
       "blend_mode, lod}; property is a keyframe property name such as ptxEffectRule:m_colourTintMinKFP or "
       "ptxu_Colour:m_rgbaMinKFP, or its numeric id. Catalyst gives the node one curve per property; the "
       "returned node lists their names for catalyst_set_curve.",
-      {{"view_id", integer}, {"node_id", integer}, {"properties", array}},
+      {{"view_id", integer}, {"node_id", node_ref}, {"properties", array}},
       {"view_id", "node_id", "properties"});
   add("catalyst_set_sprite_animation",
       "Configure flipbook frame range, FPS, blending, hold and lifetime matching.",
       {{"view_id", integer},
-       {"node_id", integer},
+       {"node_id", node_ref},
        {"first_frame", integer},
        {"last_frame", integer},
        {"fps", number},
@@ -148,13 +153,22 @@ Json tool_catalog() {
       "shows outlines and particles as dots. catalyst_status reports the current mode.",
       {{"mode", {{"type", "string"}, {"enum", {"preview", "editor", "wireframe", "simulation"}}}}}, {"mode"});
   add("catalyst_render_particle",
-      "Seek a graph preview to a normalized playback position and return a PNG image. Duration is seconds "
-      "for one normalized interval.",
+      "Seek a graph preview to a normalized playback position and return a PNG image plus the number of live "
+      "particles. Duration is seconds for one normalized interval. positions (up to 8) renders several "
+      "moments side by side, left to right, in one image. region picks what is captured: \"viewport\" "
+      "(default, the 3D preview found in the window), \"window\" or {x,y,width,height} in window pixels; "
+      "the result reports the rectangle used. max_width (default 1024) scales the image down.",
       {{"view_id", integer},
        {"position", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}},
+       {"positions", {{"type", "array"}, {"items", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}}}},
        {"duration", number},
-       {"image", boolean}},
-      {"view_id", "position"});
+       {"image", boolean},
+       {"region", {{"anyOf", Json::array({{{"type", "string"}, {"enum", {"viewport", "window"}}}, object})}}},
+       {"max_width", {{"type", "integer"}, {"minimum", 64}, {"maximum", 8192}}}},
+      {"view_id"});
+  add("catalyst_get_stats",
+      "Read the live preview statistics: particles alive right now (as Catalyst's status bar counts them) "
+      "and the active effect tab.");
   add("catalyst_import_clip_regions", "Import ptxclipregions.dat into the project.", {{"path", str}},
       {"path"});
   add("catalyst_export_clip_regions", "Export the project's clip regions as ptxclipregions.dat.",
